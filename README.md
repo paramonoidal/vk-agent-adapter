@@ -1,3 +1,10 @@
+# Private VK agent adapters
+
+This repository bundles the OpenClaw VK plugin and the native Moltis Rust adapter.
+See [COMPATIBILITY.md](COMPATIBILITY.md) for private installation, source synchronization, and host contracts.
+
+The upstream OpenClaw guide follows; its npm installation commands install the upstream public package. Use the local artifact instructions above for this private build.
+
 # openclaw-vk
 <img width="500" src="https://github.com/user-attachments/assets/1bb97849-8aa0-46dc-b3de-90e4bcf10d38"/>
 

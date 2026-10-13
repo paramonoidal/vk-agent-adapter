@@ -1,5 +1,6 @@
 import { rmSync } from "node:fs";
 import { build } from "esbuild";
+import "./patch-vk-sdk.mjs";
 
 const entryPoints = [
   "index.ts",
