@@ -1,29 +1,8 @@
-# Dependencies
-node_modules/
-
-# Build output
-dist/
-coverage/
-
-# Environment / secrets
+/target/
+*.pyc
+__pycache__/
 .env
 .env.*
 *.local
 AGENTS.local.md
-
-# OS
 .DS_Store
-Thumbs.db
-
-# Editor
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# npm pack artifacts
-*.tgz
-
-*.pyc
-
-skills/

@@ -1,10 +1,8 @@
 {
-  "openclaw_upstream": "https://github.com/pfrankov/openclaw-vk",
-  "openclaw_revision": "83297f76c543f5ff81457cd5f56367bcccbe2170",
   "moltis_upstream": "https://github.com/moltis-org/moltis",
   "moltis_revision": "1f6d28ea750d6654d52d5899b8be67727ebf7a19",
   "native_source": "moltis",
   "plugin_id": "vk",
   "native_feature": "vk",
-  "native_cancellation_sdk": "4.10.1"
+  "implementation": "native-rust"
 }
