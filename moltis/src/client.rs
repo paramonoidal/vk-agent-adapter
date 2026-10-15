@@ -304,8 +304,20 @@ impl VkClient {
         // Retry only the staging upload. No message is sent until a file has
         // been saved, so an uncertain upload cannot duplicate a chat reply.
         // Each attempt obtains a fresh server URL, avoiding an unhealthy lease.
-        let uploaded =
-            retry_upload(|| self.upload_once(peer, &bytes, filename, mime, photo)).await?;
+        let (uploaded, photo) = stage_media(photo, |as_photo| {
+            self.upload_once(
+                peer,
+                &bytes,
+                filename,
+                if as_photo || !photo {
+                    mime
+                } else {
+                    "application/octet-stream"
+                },
+                as_photo,
+            )
+        })
+        .await?;
         let saved: Value = if photo {
             let photo = uploaded["photo"]
                 .as_str()
@@ -548,6 +560,34 @@ fn uploaded_attachment_id(saved: &Value, photo: bool) -> Result<String> {
     Ok(attachment)
 }
 
+/// Stage before saving/sending, so the fallback cannot duplicate a message.
+async fn stage_media<F, Fut>(photo: bool, mut upload: F) -> Result<(Value, bool)>
+where
+    F: FnMut(bool) -> Fut,
+    Fut: Future<Output = std::result::Result<Value, UploadFailure>>,
+{
+    let uploaded = retry_upload(|| upload(photo)).await?;
+    if photo && photo_upload_rejected(&uploaded) {
+        // VK sometimes rejects valid screenshots. Preserve their exact bytes.
+        let document = retry_upload(|| upload(false)).await?;
+        Ok((document, false))
+    } else {
+        Ok((uploaded, photo))
+    }
+}
+
+/// Only an explicit empty photo result permits a document fallback. Missing or
+/// malformed fields remain errors, and save/send failures never restage media.
+fn photo_upload_rejected(uploaded: &Value) -> bool {
+    uploaded
+        .get("photo")
+        .and_then(Value::as_str)
+        .is_some_and(|photo| {
+            photo.trim().is_empty()
+                || serde_json::from_str::<Vec<Value>>(photo).is_ok_and(|photos| photos.is_empty())
+        })
+}
+
 #[cfg(test)]
 mod media_tests {
     #![allow(clippy::unwrap_used)]
@@ -558,6 +598,61 @@ mod media_tests {
             matchers::{method, path},
         },
     };
+
+    #[tokio::test]
+    async fn rejected_photo_falls_back_once_but_documents_and_errors_do_not() {
+        for (photo, first, expected) in [
+            (true, serde_json::json!({"photo":"[]"}), vec![true, false]),
+            (true, serde_json::json!({"photo":"accepted"}), vec![true]),
+            (true, serde_json::json!({"error":"malformed"}), vec![true]),
+            (false, serde_json::json!({"photo":"[]"}), vec![false]),
+        ] {
+            let mut attempts = Vec::new();
+            let (value, actual_photo) = stage_media(photo, |as_photo| {
+                attempts.push(as_photo);
+                std::future::ready(Ok(if attempts.len() == 1 {
+                    first.clone()
+                } else {
+                    serde_json::json!({"file":"original-document"})
+                }))
+            })
+            .await
+            .unwrap();
+            assert_eq!(attempts, expected);
+            assert_eq!(actual_photo, photo && expected.len() == 1);
+            if expected.len() == 2 {
+                assert_eq!(value["file"], "original-document");
+            }
+        }
+        let mut attempts = 0;
+        assert!(
+            stage_media(true, |_| {
+                attempts += 1;
+                std::future::ready(Err(UploadFailure::Permanent(Error::unavailable(
+                    "rejected",
+                ))))
+            })
+            .await
+            .is_err()
+        );
+        assert_eq!(attempts, 1);
+    }
+
+    #[test]
+    fn only_explicit_empty_photo_results_allow_document_fallback() {
+        for photo in ["[]", " [ ] ", "", "  "] {
+            assert!(photo_upload_rejected(&serde_json::json!({"photo":photo})));
+        }
+        for response in [
+            serde_json::json!({"photo": serde_json::json!([{"id":1}]).to_string()}),
+            serde_json::json!({"photo":"invalid"}),
+            serde_json::json!({"photo":[]}),
+            serde_json::json!({"file":"staged"}),
+            serde_json::json!({"error":"rejected"}),
+        ] {
+            assert!(!photo_upload_rejected(&response));
+        }
+    }
 
     #[tokio::test]
     async fn transient_upload_is_retried_with_the_same_file_bytes() {
